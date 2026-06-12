@@ -1,0 +1,42 @@
+# SSV market-quality monitoring configuration.
+# All values can be overridden by environment variables (see config.py / .env.example).
+
+sampling:
+  # How often (seconds) a metric sample is taken from each live order book.
+  # 5s => 17280 expected samples per UTC day per market.
+  cadence_seconds: 5
+  # Books with no update for longer than this are dropped and counted as a
+  # coverage gap instead of being re-sampled (silently stalled feed guard).
+  max_book_age_seconds: 60
+
+depth:
+  # How many price levels to request per side via watchOrderBook.
+  # SSV bands are narrow, so deep-enough L2 (not full L3) reliably covers +/-2%.
+  book_limit: 50
+  # Depth bands in basis points of mid. 100 bps = +/-1%, 200 bps = +/-2%.
+  bands_bps: [100, 200]
+
+coverage:
+  # Daily aggregates with coverage below this percentage are flagged low_coverage
+  # and excluded from trend/comparison panels by default.
+  threshold_pct: 90
+
+aggregator:
+  # UTC hour at which the scheduled daily job runs (computes the previous UTC day).
+  run_hour_utc: 0
+  run_minute_utc: 30
+
+# Markets to monitor. Symbols use CCXT unified notation (BASE/QUOTE).
+# USDT/USDC are treated as ~= USD for depth notional.
+# Markets not listed on a venue are skipped + logged at startup (delisting-safe).
+markets:
+  - { exchange: binance, symbol: "SSV/USDT" }
+  - { exchange: binance, symbol: "SSV/USDC" }
+  - { exchange: bybit,   symbol: "SSV/USDT" }
+  - { exchange: bybit,   symbol: "SSV/USDC" }
+  - { exchange: gate,    symbol: "SSV/USDT" }
+  - { exchange: gate,    symbol: "SSV/USDC" }
+  - { exchange: kucoin,  symbol: "SSV/USDT" }
+  - { exchange: kucoin,  symbol: "SSV/USDC" }
+  - { exchange: okx,     symbol: "SSV/USDT" }
+  - { exchange: okx,     symbol: "SSV/USDC" }

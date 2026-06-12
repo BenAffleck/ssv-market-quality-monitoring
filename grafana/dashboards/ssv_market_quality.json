@@ -1,0 +1,119 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "title": "SSV Market Quality",
+  "uid": "ssv-market-quality",
+  "tags": ["ssv", "liquidity"],
+  "time": { "from": "now-30d", "to": "now" },
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "symbol",
+        "label": "Symbol",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+        "query": "SELECT DISTINCT symbol FROM daily_aggregates ORDER BY 1",
+        "refresh": 2,
+        "includeAll": false,
+        "current": {}
+      },
+      {
+        "name": "include_low_coverage",
+        "label": "Include low-coverage days",
+        "type": "custom",
+        "query": "false,true",
+        "current": { "text": "false", "value": "false" },
+        "options": [
+          { "text": "false", "value": "false", "selected": true },
+          { "text": "true", "value": "true", "selected": false }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Average spread % by exchange — $symbol",
+      "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, avg_spread_pct AS value FROM daily_aggregates WHERE symbol = '$symbol' AND ('$include_low_coverage' = 'true' OR NOT low_coverage) ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Data coverage % by exchange — $symbol",
+      "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 90 } ] } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, coverage_pct AS value FROM daily_aggregates WHERE symbol = '$symbol' ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Depth within +/-100 bps (USD) by exchange — $symbol",
+      "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, avg_depth_100_usd AS value FROM daily_aggregates WHERE symbol = '$symbol' AND ('$include_low_coverage' = 'true' OR NOT low_coverage) ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Depth within +/-200 bps (USD) by exchange — $symbol",
+      "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, avg_depth_200_usd AS value FROM daily_aggregates WHERE symbol = '$symbol' AND ('$include_low_coverage' = 'true' OR NOT low_coverage) ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Latest day — cross-exchange comparison ($symbol)",
+      "type": "table",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 18 },
+      "fieldConfig": { "defaults": {}, "overrides": [
+        { "matcher": { "id": "byName", "options": "avg_spread_pct" }, "properties": [ { "id": "unit", "value": "percent" } ] },
+        { "matcher": { "id": "byName", "options": "depth_100_usd" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+        { "matcher": { "id": "byName", "options": "depth_200_usd" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+        { "matcher": { "id": "byName", "options": "coverage_pct" }, "properties": [ { "id": "unit", "value": "percent" } ] }
+      ] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT exchange, avg_spread_pct, avg_depth_100_usd AS depth_100_usd, avg_depth_200_usd AS depth_200_usd, coverage_pct, low_coverage, crossed_samples_excluded FROM daily_aggregates WHERE symbol = '$symbol' AND day = (SELECT max(day) FROM daily_aggregates WHERE symbol = '$symbol') ORDER BY avg_spread_pct ASC"
+        }
+      ]
+    }
+  ]
+}

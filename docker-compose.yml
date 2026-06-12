@@ -1,0 +1,71 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ssv}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_only}
+      POSTGRES_DB: ${POSTGRES_DB:-ssv_mqm}
+    ports:
+      - "5432:5432"
+    volumes:
+      - tsdb_data:/var/lib/postgresql/data
+      # Schema is applied on first init of an empty data dir.
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ssv} -d ${POSTGRES_DB:-ssv_mqm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  collector:
+    build: .
+    restart: unless-stopped          # outer process supervisor (P0-7)
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ssv}:${POSTGRES_PASSWORD:-change_me_local_only}@timescaledb:5432/${POSTGRES_DB:-ssv_mqm}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    command: ["python", "-m", "ssv_mqm.main"]
+
+  aggregator:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ssv}:${POSTGRES_PASSWORD:-change_me_local_only}@timescaledb:5432/${POSTGRES_DB:-ssv_mqm}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    # Scheduled loop: computes the previous UTC day shortly after midnight UTC.
+    command: ["python", "-m", "ssv_mqm.aggregator", "--schedule"]
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    depends_on:
+      - timescaledb
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Render all times in UTC. Daily aggregates are keyed by a UTC `day`; without this,
+      # Grafana renders DATE columns as midnight-UTC instants in the browser's local zone,
+      # shifting every date back a day when the viewer is behind UTC.
+      GF_USERS_DEFAULT_TIMEZONE: "utc"
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: "utc"
+      # Passed through to the provisioned datasource.
+      PG_USER: ${POSTGRES_USER:-ssv}
+      PG_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_only}
+      PG_DB: ${POSTGRES_DB:-ssv_mqm}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  tsdb_data:
+  grafana_data:
