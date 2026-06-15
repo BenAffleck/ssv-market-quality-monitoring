@@ -1,0 +1,166 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "title": "SSV Correlation & Beta",
+  "uid": "ssv-correlation",
+  "tags": ["ssv", "correlation", "beta"],
+  "time": { "from": "now-180d", "to": "now" },
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "benchmark",
+        "label": "Benchmark asset",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+        "query": "SELECT DISTINCT benchmark FROM daily_correlations ORDER BY 1",
+        "refresh": 2,
+        "includeAll": false,
+        "current": {}
+      },
+      {
+        "name": "window",
+        "label": "Rolling window (days)",
+        "type": "custom",
+        "query": "30,60,90",
+        "current": { "text": "30", "value": "30" },
+        "options": [
+          { "text": "30", "value": "30", "selected": true },
+          { "text": "60", "value": "60", "selected": false },
+          { "text": "90", "value": "90", "selected": false }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Indexed price (first day = 100) — SSV vs benchmark vs peers",
+      "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "none", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "never" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", asset AS metric, close_usd / first_value(close_usd) OVER (PARTITION BY asset ORDER BY day) * 100 AS value FROM asset_prices ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Rolling correlation to $benchmark ($window d)",
+      "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "none", "min": -1, "max": 1, "decimals": 2, "custom": { "drawStyle": "line", "lineWidth": 2, "points": "never" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", asset AS metric, correlation AS value FROM daily_correlations WHERE benchmark = '$benchmark' AND window_days = $window AND correlation IS NOT NULL ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Rolling beta to $benchmark ($window d)",
+      "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 2, "custom": { "drawStyle": "line", "lineWidth": 2, "points": "never" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", asset AS metric, beta AS value FROM daily_correlations WHERE benchmark = '$benchmark' AND window_days = $window AND beta IS NOT NULL ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "SSV correlation to $benchmark — latest ($window d)",
+      "type": "stat",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 18 },
+      "fieldConfig": { "defaults": { "unit": "none", "min": -1, "max": 1, "decimals": 2, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0.3 }, { "color": "green", "value": 0.6 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "textMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT correlation FROM daily_correlations WHERE asset = 'SSV' AND benchmark = '$benchmark' AND window_days = $window AND correlation IS NOT NULL ORDER BY day DESC LIMIT 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "SSV beta to $benchmark — latest ($window d)",
+      "type": "stat",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 18 },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 2 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT beta FROM daily_correlations WHERE asset = 'SSV' AND benchmark = '$benchmark' AND window_days = $window AND beta IS NOT NULL ORDER BY day DESC LIMIT 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "SSV R² to $benchmark — latest ($window d)",
+      "type": "stat",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 18 },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0, "max": 1, "decimals": 2 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT r2 FROM daily_correlations WHERE asset = 'SSV' AND benchmark = '$benchmark' AND window_days = $window AND r2 IS NOT NULL ORDER BY day DESC LIMIT 1"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Latest correlation & beta to $benchmark by asset ($window d)",
+      "type": "table",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 22 },
+      "fieldConfig": { "defaults": { "decimals": 2 }, "overrides": [
+        { "matcher": { "id": "byName", "options": "correlation" }, "properties": [ { "id": "min", "value": -1 }, { "id": "max", "value": 1 } ] }
+      ] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT asset, correlation, beta, r2, n_obs FROM daily_correlations WHERE benchmark = '$benchmark' AND window_days = $window AND day = (SELECT max(day) FROM daily_correlations WHERE benchmark = '$benchmark' AND window_days = $window) ORDER BY asset ASC"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Daily returns scatter — SSV vs $benchmark",
+      "type": "xychart",
+      "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 2, "custom": { "show": "points", "pointSize": { "fixed": 5 } } }, "overrides": [] },
+      "options": { "seriesMapping": "auto" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT e.log_ret AS \"$benchmark log return\", s.log_ret AS \"SSV log return\" FROM asset_returns s JOIN asset_returns e ON s.day = e.day WHERE s.asset = 'SSV' AND e.asset = '$benchmark' AND s.log_ret IS NOT NULL AND e.log_ret IS NOT NULL ORDER BY e.log_ret"
+        }
+      ]
+    }
+  ]
+}

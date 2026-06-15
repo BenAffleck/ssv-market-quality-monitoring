@@ -15,8 +15,9 @@ import asyncpg
 
 from .aggregate import build_daily_aggregate
 from .config import BenchmarkTarget
+from .correlation import CorrelationPoint
 from .log import get_logger
-from .models import DailyAggregate, SampleMetrics
+from .models import AssetClose, DailyAggregate, SampleMetrics
 
 log = get_logger(__name__)
 
@@ -259,3 +260,60 @@ class Database:
                 """,
                 day,
             )
+
+    async def upsert_asset_prices(self, closes: list[AssetClose]) -> None:
+        """Batch-upsert daily asset closes. Re-running (e.g. backfill) is idempotent."""
+        if not closes:
+            return
+        now = datetime.now(timezone.utc)
+        rows = [(c.day, c.asset, c.close_usd, c.source, now) for c in closes]
+        async with self.pool.acquire() as conn:
+            await conn.executemany(
+                """
+                INSERT INTO asset_prices (day, asset, close_usd, source, computed_at)
+                VALUES ($1,$2,$3,$4,$5)
+                ON CONFLICT (day, asset) DO UPDATE SET
+                    close_usd = EXCLUDED.close_usd,
+                    source = EXCLUDED.source,
+                    computed_at = EXCLUDED.computed_at
+                """,
+                rows,
+            )
+        log.info("db.asset_prices_upserted", count=len(closes))
+
+    async def fetch_asset_prices(self) -> dict[str, list[tuple[date, float]]]:
+        """All stored closes as ``{asset: [(day, close_usd), ...]}``, each sorted by day."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT day, asset, close_usd FROM asset_prices ORDER BY asset, day"
+            )
+        prices: dict[str, list[tuple[date, float]]] = {}
+        for r in rows:
+            prices.setdefault(r["asset"], []).append((r["day"], float(r["close_usd"])))
+        return prices
+
+    async def upsert_daily_correlations(self, points: list[CorrelationPoint]) -> None:
+        """Batch-upsert rolling correlation/beta points. Idempotent on recompute."""
+        if not points:
+            return
+        now = datetime.now(timezone.utc)
+        rows = [
+            (p.day, p.asset, p.benchmark, p.window, p.correlation, p.beta, p.r2, p.n_obs, now)
+            for p in points
+        ]
+        async with self.pool.acquire() as conn:
+            await conn.executemany(
+                """
+                INSERT INTO daily_correlations (
+                    day, asset, benchmark, window_days, correlation, beta, r2, n_obs, computed_at
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                ON CONFLICT (day, asset, benchmark, window_days) DO UPDATE SET
+                    correlation = EXCLUDED.correlation,
+                    beta = EXCLUDED.beta,
+                    r2 = EXCLUDED.r2,
+                    n_obs = EXCLUDED.n_obs,
+                    computed_at = EXCLUDED.computed_at
+                """,
+                rows,
+            )
+        log.info("db.correlations_upserted", count=len(points))

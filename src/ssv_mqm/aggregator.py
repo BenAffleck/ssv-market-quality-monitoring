@@ -17,11 +17,17 @@ import argparse
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 
+from . import prices
 from .config import AppConfig, load_config
+from .correlation import correlation_points
 from .db import Database
 from .log import configure_logging, get_logger
 
 log = get_logger(__name__)
+
+# Daily closes refreshed on each scheduled run. A few days (not just yesterday) heals any
+# brief gap cheaply; the upsert is idempotent. Full history loads via --backfill instead.
+_DAILY_PRICE_LIMIT = 5
 
 
 def _yesterday_utc() -> date:
@@ -52,7 +58,56 @@ async def aggregate_for_day(db: Database, config: AppConfig, day: date) -> int:
             coverage_pct=a.coverage_pct,
         )
     await _log_benchmark_breaches(db, day)
+    # Refresh reference prices + correlation/beta KPIs alongside the daily aggregation. Kept
+    # in its own guard so a price-feed hiccup never loses the order-book aggregation result.
+    if config.prices.active:
+        try:
+            await collect_and_store_prices(db, config, limit=_DAILY_PRICE_LIMIT)
+        except Exception as exc:  # noqa: BLE001 - prices must not fail daily aggregation
+            log.error("aggregator.prices_failed", error=str(exc))
     return len(aggregates)
+
+
+async def collect_and_store_prices(db: Database, config: AppConfig, *, limit: int) -> None:
+    """Fetch recent daily closes, store them, then recompute rolling correlation/beta."""
+    if not config.prices.active:
+        return
+    closes = await prices.fetch_daily_closes(config, limit=limit)
+    await db.upsert_asset_prices(closes)
+    await _recompute_correlations(db, config)
+
+
+async def _recompute_correlations(db: Database, config: AppConfig) -> None:
+    """Recompute every comparison asset's correlation/beta vs the benchmark over full history.
+
+    Reads the whole (small) price history so rolling windows are correct regardless of how
+    few days the latest fetch refreshed. The upsert overwrites in place.
+    """
+    history = await db.fetch_asset_prices()
+    benchmark = config.prices.benchmark_asset
+    benchmark_prices = history.get(benchmark, [])
+    if not benchmark_prices:
+        log.warning("aggregator.no_benchmark_prices", benchmark=benchmark)
+        return
+    points = []
+    comparison = config.prices.comparison_assets()
+    for asset_cfg in comparison:
+        asset_prices = history.get(asset_cfg.asset, [])
+        if not asset_prices:
+            log.warning("aggregator.no_asset_prices", asset=asset_cfg.asset)
+            continue
+        points.extend(
+            correlation_points(
+                asset=asset_cfg.asset,
+                benchmark=benchmark,
+                asset_prices=asset_prices,
+                benchmark_prices=benchmark_prices,
+                windows=config.prices.windows,
+                min_obs_ratio=config.prices.min_obs_ratio,
+            )
+        )
+    await db.upsert_daily_correlations(points)
+    log.info("aggregator.correlations_computed", assets=len(comparison), points=len(points))
 
 
 # Each benchmarked metric and its columns in the benchmark_comparison view. The over/under
@@ -124,6 +179,12 @@ async def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Sync benchmark targets from config into the DB, then exit.",
     )
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Backfill reference-asset daily prices (config.prices.backfill_days) and "
+        "recompute correlations, then exit.",
+    )
     args = parser.parse_args(argv)
 
     configure_logging()
@@ -134,6 +195,9 @@ async def main(argv: list[str] | None = None) -> None:
     await db.seed_benchmark_targets(config.benchmarks)
     try:
         if args.seed_benchmarks:
+            return
+        if args.backfill:
+            await collect_and_store_prices(db, config, limit=config.prices.backfill_days)
             return
         if args.schedule:
             await run_scheduled(db, config)

@@ -66,3 +66,20 @@ benchmarks:
   - { exchange: gate,   symbol: "SSV/USDT", max_spread_pct: 0.20, min_depth_100_usd: 40000, min_depth_200_usd: 90000 }
   - { exchange: kucoin,   symbol: "SSV/USDT", max_spread_pct: 0.20, min_depth_100_usd: 40000, min_depth_200_usd: 90000 }
   - { exchange: bitvavo,  symbol: "SSV/EUR",  max_spread_pct: 0.20, min_depth_100_usd: 40000, min_depth_200_usd: 90000 }
+
+# Daily reference-price collection for the correlation/beta KPIs (separate from the
+# order-book monitoring above). The aggregator pulls one daily UTC close per asset via CCXT
+# 1d candles, then computes each non-benchmark asset's rolling correlation and beta vs the
+# benchmark_asset. SSV is a beta play on ETH, so ETH is the benchmark; RPL is the first
+# staking-narrative comparison. Adding another comparison project is a single `assets:` line.
+# Backfill history on demand: `aggregator --backfill` (loads `backfill_days` of closes).
+prices:
+  enabled: true
+  benchmark_asset: ETH
+  windows: [30, 60, 90]      # rolling lookbacks in days
+  min_obs_ratio: 0.9         # fraction of a window required before publishing corr/beta
+  backfill_days: 120         # daily closes loaded by `--backfill`
+  assets:
+    - { asset: SSV, exchange: binance, symbol: "SSV/USDT" }
+    - { asset: ETH, exchange: binance, symbol: "ETH/USDT" }
+    - { asset: RPL, exchange: binance, symbol: "RPL/USDT" }

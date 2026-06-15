@@ -7,7 +7,7 @@ These are intentionally plain (no DB or network concerns) so the metric math in
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 
 @dataclass(frozen=True)
@@ -62,3 +62,17 @@ class DailyAggregate:
     coverage_pct: float
     crossed_samples_excluded: int
     low_coverage: bool
+
+
+@dataclass(frozen=True)
+class AssetClose:
+    """One asset's daily UTC close price in USD, from a single venue's 1d candle.
+
+    Feeds the correlation/beta pipeline (SSV vs ETH, plus comparison projects like RPL).
+    ``source`` records the ``<exchange>:<symbol>`` the close came from, for auditability.
+    """
+
+    day: date
+    asset: str  # logical id: SSV, ETH, RPL, ...
+    close_usd: float
+    source: str

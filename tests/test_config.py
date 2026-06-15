@@ -145,3 +145,78 @@ def test_usd_quote_market_needs_no_fx(tmp_path):
     cfg = load_config(_write(tmp_path, "markets:\n  - { exchange: binance, symbol: 'SSV/USDC' }\n"))
     assert cfg.fx == {}
     assert cfg.fx_sources() == []
+
+
+def test_prices_default_inactive(tmp_path):
+    # No prices section: defaults parse, but with no assets collection is inactive.
+    cfg = load_config(_write(tmp_path, "markets:\n  - { exchange: binance, symbol: 'SSV/USDT' }\n"))
+    assert cfg.prices.enabled is True
+    assert cfg.prices.assets == []
+    assert cfg.prices.active is False
+    assert cfg.prices.benchmark_asset == "ETH"
+    assert cfg.prices.windows == [30, 60, 90]
+
+
+def test_prices_parsed(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        markets:
+          - { exchange: binance, symbol: "SSV/USDT" }
+        prices:
+          benchmark_asset: ETH
+          windows: [30, 90]
+          assets:
+            - { asset: SSV, exchange: binance, symbol: "SSV/USDT" }
+            - { asset: ETH, exchange: binance, symbol: "ETH/USDT" }
+            - { asset: RPL, exchange: binance, symbol: "RPL/USDT" }
+        """,
+    )
+    cfg = load_config(path)
+    assert cfg.prices.active is True
+    assert cfg.prices.windows == [30, 90]
+    # The benchmark is excluded from the comparison set; one config line = one comparison.
+    assert [a.asset for a in cfg.prices.comparison_assets()] == ["SSV", "RPL"]
+
+
+def test_prices_benchmark_must_be_in_assets():
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(
+            {
+                "markets": [{"exchange": "binance", "symbol": "SSV/USDT"}],
+                "prices": {
+                    "benchmark_asset": "ETH",
+                    "assets": [{"asset": "SSV", "exchange": "binance", "symbol": "SSV/USDT"}],
+                },
+            }
+        )
+
+
+def test_prices_duplicate_asset_rejected():
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(
+            {
+                "markets": [{"exchange": "binance", "symbol": "SSV/USDT"}],
+                "prices": {
+                    "benchmark_asset": "SSV",
+                    "assets": [
+                        {"asset": "SSV", "exchange": "binance", "symbol": "SSV/USDT"},
+                        {"asset": "SSV", "exchange": "okx", "symbol": "SSV/USDT"},
+                    ],
+                },
+            }
+        )
+
+
+def test_prices_bad_window_rejected():
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(
+            {
+                "markets": [{"exchange": "binance", "symbol": "SSV/USDT"}],
+                "prices": {
+                    "benchmark_asset": "ETH",
+                    "windows": [1],
+                    "assets": [{"asset": "ETH", "exchange": "binance", "symbol": "ETH/USDT"}],
+                },
+            }
+        )

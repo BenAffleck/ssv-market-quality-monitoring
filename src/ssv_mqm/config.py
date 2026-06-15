@@ -114,6 +114,68 @@ class BenchmarkTarget(BaseModel):
         return self
 
 
+class PriceAsset(BaseModel):
+    """One token whose daily USD close is collected for correlation/beta.
+
+    ``asset`` is the logical id used across the KPI tables (e.g. ``SSV``, ``ETH``, ``RPL``);
+    ``exchange``/``symbol`` is the CCXT venue + unified pair the daily candle is pulled from.
+    """
+
+    asset: str
+    exchange: str
+    symbol: str
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.exchange, self.symbol)
+
+
+class PricesConfig(BaseModel):
+    """Daily reference-price collection for the correlation/beta KPIs.
+
+    SSV is a beta play on ETH, so ``benchmark_asset`` (ETH) is the independent variable that
+    every other asset's correlation/beta is measured against. Comparison projects in the same
+    staking narrative (RPL today, more later) are just extra ``assets`` entries — adding one is
+    a single line. ``windows`` are rolling lookbacks in days; ``min_obs_ratio`` is the fraction
+    of a window that must be present before a correlation/beta is published.
+    """
+
+    enabled: bool = True
+    assets: list[PriceAsset] = Field(default_factory=list)
+    benchmark_asset: str = "ETH"
+    windows: list[int] = Field(default_factory=lambda: [30, 60, 90])
+    min_obs_ratio: float = Field(0.9, gt=0, le=1)
+    backfill_days: int = Field(120, gt=0)
+
+    @field_validator("windows")
+    @classmethod
+    def _windows_valid(cls, v: list[int]) -> list[int]:
+        if not v or any(w <= 1 for w in v):
+            raise ValueError("prices.windows must be a non-empty list of integers > 1")
+        return v
+
+    @model_validator(mode="after")
+    def _benchmark_in_assets(self) -> PricesConfig:
+        if self.assets:
+            asset_ids = [a.asset for a in self.assets]
+            if len(asset_ids) != len(set(asset_ids)):
+                raise ValueError("prices.assets has duplicate asset ids")
+            if self.benchmark_asset not in asset_ids:
+                raise ValueError(
+                    f"prices.benchmark_asset {self.benchmark_asset!r} is not in prices.assets"
+                )
+        return self
+
+    @property
+    def active(self) -> bool:
+        """True when price collection should run (enabled and at least one asset)."""
+        return self.enabled and bool(self.assets)
+
+    def comparison_assets(self) -> list[PriceAsset]:
+        """Assets compared against the benchmark (everything except the benchmark itself)."""
+        return [a for a in self.assets if a.asset != self.benchmark_asset]
+
+
 class AppConfig(BaseModel):
     sampling: SamplingConfig = Field(default_factory=SamplingConfig)
     depth: DepthConfig = Field(default_factory=DepthConfig)
@@ -123,6 +185,8 @@ class AppConfig(BaseModel):
     benchmarks: list[BenchmarkTarget] = Field(default_factory=list)
     # FX conversion sources keyed by fiat quote currency (e.g. "EUR").
     fx: dict[str, FxSource] = Field(default_factory=dict)
+    # Daily reference-price collection for correlation/beta KPIs.
+    prices: PricesConfig = Field(default_factory=PricesConfig)
 
     @field_validator("markets")
     @classmethod

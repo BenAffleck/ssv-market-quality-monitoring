@@ -15,6 +15,8 @@ services:
       - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
       - ./migrations/002_benchmarks.sql:/docker-entrypoint-initdb.d/002_benchmarks.sql:ro
       - ./migrations/003_fx_rate.sql:/docker-entrypoint-initdb.d/003_fx_rate.sql:ro
+      - ./migrations/004_asset_prices.sql:/docker-entrypoint-initdb.d/004_asset_prices.sql:ro
+      - ./migrations/005_daily_correlations.sql:/docker-entrypoint-initdb.d/005_daily_correlations.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ssv} -d ${POSTGRES_DB:-ssv_mqm}"]
       interval: 5s
