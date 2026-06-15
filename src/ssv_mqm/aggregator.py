@@ -51,7 +51,34 @@ async def aggregate_for_day(db: Database, config: AppConfig, day: date) -> int:
             symbol=a.symbol,
             coverage_pct=a.coverage_pct,
         )
+    await _log_benchmark_breaches(db, day)
     return len(aggregates)
+
+
+# Each benchmarked metric and its columns in the benchmark_comparison view. The over/under
+# rule itself lives in ssv_mqm.benchmark and the view; here we only surface the misses.
+_BREACH_METRICS = (
+    ("spread", "avg_spread_pct", "max_spread_pct", "spread_met"),
+    ("depth_100_usd", "avg_depth_100_usd", "min_depth_100_usd", "depth_100_met"),
+    ("depth_200_usd", "avg_depth_200_usd", "min_depth_200_usd", "depth_200_met"),
+)
+
+
+async def _log_benchmark_breaches(db: Database, day: date) -> None:
+    """Warn for each market/metric that missed its configured target on ``day``."""
+    breaches = await db.fetch_benchmark_breaches(day)
+    for row in breaches:
+        for metric, actual_col, target_col, met_col in _BREACH_METRICS:
+            if row[met_col] is False:
+                log.warning(
+                    "aggregator.benchmark_breach",
+                    day=day.isoformat(),
+                    exchange=row["exchange"],
+                    symbol=row["symbol"],
+                    metric=metric,
+                    actual=float(row[actual_col]),
+                    target=float(row[target_col]),
+                )
 
 
 async def _seconds_until_next_run(config: AppConfig) -> float:
@@ -92,6 +119,11 @@ async def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="SSV daily market-quality aggregator")
     parser.add_argument("--date", help="UTC day to (re)compute, YYYY-MM-DD. Default: yesterday.")
     parser.add_argument("--schedule", action="store_true", help="Run as a daily scheduled daemon.")
+    parser.add_argument(
+        "--seed-benchmarks",
+        action="store_true",
+        help="Sync benchmark targets from config into the DB, then exit.",
+    )
     args = parser.parse_args(argv)
 
     configure_logging()
@@ -99,7 +131,10 @@ async def main(argv: list[str] | None = None) -> None:
     db = Database(config.database_url)
     await db.connect()
     await db.bootstrap_schema()
+    await db.seed_benchmark_targets(config.benchmarks)
     try:
+        if args.seed_benchmarks:
+            return
         if args.schedule:
             await run_scheduled(db, config)
         else:

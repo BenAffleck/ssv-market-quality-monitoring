@@ -31,6 +31,18 @@
           { "text": "false", "value": "false", "selected": true },
           { "text": "true", "value": "true", "selected": false }
         ]
+      },
+      {
+        "name": "show_benchmarks",
+        "label": "Overlay benchmark targets",
+        "description": "Overlay dashed benchmark target lines on the spread/depth trend charts.",
+        "type": "custom",
+        "query": "false,true",
+        "current": { "text": "false", "value": "false" },
+        "options": [
+          { "text": "false", "value": "false", "selected": true },
+          { "text": "true", "value": "true", "selected": false }
+        ]
       }
     ]
   },
@@ -41,12 +53,12 @@
       "type": "timeseries",
       "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
-      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" } }, "overrides": [ { "matcher": { "id": "byRegexp", "options": "/ target$/" }, "properties": [ { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 6] } }, { "id": "custom.lineWidth", "value": 1 }, { "id": "custom.points", "value": "never" } ] } ] },
       "targets": [
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, avg_spread_pct AS value FROM daily_aggregates WHERE symbol = '$symbol' AND ('$include_low_coverage' = 'true' OR NOT low_coverage) ORDER BY 1"
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, avg_spread_pct AS value FROM daily_aggregates WHERE symbol = '$symbol' AND ('$include_low_coverage' = 'true' OR NOT low_coverage) UNION ALL SELECT ((da.day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", da.exchange || ' target' AS metric, bt.max_spread_pct AS value FROM daily_aggregates da JOIN benchmark_targets bt USING (exchange, symbol) WHERE '$show_benchmarks' = 'true' AND da.symbol = '$symbol' AND bt.max_spread_pct IS NOT NULL AND ('$include_low_coverage' = 'true' OR NOT da.low_coverage) ORDER BY 1"
         }
       ]
     },
@@ -71,12 +83,12 @@
       "type": "timeseries",
       "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
-      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" } }, "overrides": [ { "matcher": { "id": "byRegexp", "options": "/ target$/" }, "properties": [ { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 6] } }, { "id": "custom.lineWidth", "value": 1 }, { "id": "custom.points", "value": "never" } ] } ] },
       "targets": [
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, avg_depth_100_usd AS value FROM daily_aggregates WHERE symbol = '$symbol' AND ('$include_low_coverage' = 'true' OR NOT low_coverage) ORDER BY 1"
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, avg_depth_100_usd AS value FROM daily_aggregates WHERE symbol = '$symbol' AND ('$include_low_coverage' = 'true' OR NOT low_coverage) UNION ALL SELECT ((da.day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", da.exchange || ' target' AS metric, bt.min_depth_100_usd AS value FROM daily_aggregates da JOIN benchmark_targets bt USING (exchange, symbol) WHERE '$show_benchmarks' = 'true' AND da.symbol = '$symbol' AND bt.min_depth_100_usd IS NOT NULL AND ('$include_low_coverage' = 'true' OR NOT da.low_coverage) ORDER BY 1"
         }
       ]
     },
@@ -86,12 +98,12 @@
       "type": "timeseries",
       "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
-      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "lineWidth": 2, "points": "always" } }, "overrides": [ { "matcher": { "id": "byRegexp", "options": "/ target$/" }, "properties": [ { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 6] } }, { "id": "custom.lineWidth", "value": 1 }, { "id": "custom.points", "value": "never" } ] } ] },
       "targets": [
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, avg_depth_200_usd AS value FROM daily_aggregates WHERE symbol = '$symbol' AND ('$include_low_coverage' = 'true' OR NOT low_coverage) ORDER BY 1"
+          "rawSql": "SELECT ((day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", exchange AS metric, avg_depth_200_usd AS value FROM daily_aggregates WHERE symbol = '$symbol' AND ('$include_low_coverage' = 'true' OR NOT low_coverage) UNION ALL SELECT ((da.day + INTERVAL '12 hours') AT TIME ZONE 'UTC') AS \"time\", da.exchange || ' target' AS metric, bt.min_depth_200_usd AS value FROM daily_aggregates da JOIN benchmark_targets bt USING (exchange, symbol) WHERE '$show_benchmarks' = 'true' AND da.symbol = '$symbol' AND bt.min_depth_200_usd IS NOT NULL AND ('$include_low_coverage' = 'true' OR NOT da.low_coverage) ORDER BY 1"
         }
       ]
     },
@@ -112,6 +124,69 @@
           "refId": "A",
           "format": "table",
           "rawSql": "SELECT exchange, avg_spread_pct, avg_depth_100_usd AS depth_100_usd, avg_depth_200_usd AS depth_200_usd, coverage_pct, low_coverage, crossed_samples_excluded FROM daily_aggregates WHERE symbol = '$symbol' AND day = (SELECT max(day) FROM daily_aggregates WHERE symbol = '$symbol') ORDER BY avg_spread_pct ASC"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Benchmarks — target vs. actual & breaches ($symbol)",
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "panels": [
+        {
+          "id": 6,
+          "title": "Target vs. actual — latest day ($symbol)",
+          "type": "table",
+          "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 28 },
+          "fieldConfig": { "defaults": {}, "overrides": [
+            { "matcher": { "id": "byName", "options": "avg_spread_pct" }, "properties": [ { "id": "unit", "value": "percent" } ] },
+            { "matcher": { "id": "byName", "options": "max_spread_pct" }, "properties": [ { "id": "unit", "value": "percent" } ] },
+            { "matcher": { "id": "byName", "options": "spread_delta" }, "properties": [ { "id": "unit", "value": "percent" } ] },
+            { "matcher": { "id": "byName", "options": "avg_depth_100_usd" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+            { "matcher": { "id": "byName", "options": "min_depth_100_usd" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+            { "matcher": { "id": "byName", "options": "avg_depth_200_usd" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+            { "matcher": { "id": "byName", "options": "min_depth_200_usd" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+            { "matcher": { "id": "byRegexp", "options": "/_status$/" }, "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "over": { "color": "green", "index": 0 }, "under": { "color": "red", "index": 1 } } }
+              ] }
+            ] }
+          ] },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT exchange, avg_spread_pct, max_spread_pct, spread_status, avg_depth_100_usd, min_depth_100_usd, depth_100_status, avg_depth_200_usd, min_depth_200_usd, depth_200_status FROM benchmark_comparison WHERE symbol = '$symbol' AND day = (SELECT max(day) FROM benchmark_comparison WHERE symbol = '$symbol') ORDER BY exchange ASC"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "title": "Recent benchmark breaches — $symbol",
+          "type": "table",
+          "datasource": { "type": "postgres", "uid": "ssv_tsdb" },
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 37 },
+          "fieldConfig": { "defaults": {}, "overrides": [
+            { "matcher": { "id": "byName", "options": "avg_spread_pct" }, "properties": [ { "id": "unit", "value": "percent" } ] },
+            { "matcher": { "id": "byName", "options": "avg_depth_100_usd" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+            { "matcher": { "id": "byName", "options": "avg_depth_200_usd" }, "properties": [ { "id": "unit", "value": "currencyUSD" } ] },
+            { "matcher": { "id": "byRegexp", "options": "/_status$/" }, "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "over": { "color": "green", "index": 0 }, "under": { "color": "red", "index": 1 } } }
+              ] }
+            ] }
+          ] },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT day, exchange, spread_status, depth_100_status, depth_200_status FROM benchmark_comparison WHERE symbol = '$symbol' AND (spread_met = FALSE OR depth_100_met = FALSE OR depth_200_met = FALSE) ORDER BY day DESC, exchange ASC"
+            }
+          ]
         }
       ]
     }

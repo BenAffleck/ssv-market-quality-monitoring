@@ -15,8 +15,8 @@ for the full product spec. This implementation covers the **P0 (must-have)** sco
 |-----------|--------|------|
 | Collector + Sampler | `ssv_mqm.main` | One CCXT Pro `watch_order_book` task per `(exchange, symbol)`, plus a periodic sampler that computes & persists metrics every `cadence_seconds`. |
 | Aggregator | `ssv_mqm.aggregator` | Daily job: per-venue average spread % and ±100/±200 bps depth (USD) + coverage, into `daily_aggregates`. |
-| Store | TimescaleDB | `samples` hypertable + `daily_aggregates` table. |
-| Dashboard | Grafana | Provisioned time-series + cross-exchange comparison panels. |
+| Store | TimescaleDB | `samples` hypertable + `daily_aggregates` table + `benchmark_targets` and the `benchmark_comparison` view. |
+| Dashboard | Grafana | Provisioned time-series + cross-exchange comparison + target-vs-actual panels. |
 
 The metric math lives in `ssv_mqm.metrics` and the aggregation rules in `ssv_mqm.aggregate`
 — both pure and fully unit-tested, so the published numbers are deterministic and auditable.
@@ -58,10 +58,46 @@ docker compose up -d --build  # TimescaleDB + collector + aggregator + Grafana
 docker compose run --rm aggregator python -m ssv_mqm.aggregator --date 2026-06-09
 ```
 
+## Benchmarks (target vs. actual)
+
+Define per-`(exchange, symbol)` targets under `benchmarks:` in `config/config.yaml` to
+compare each venue against what you expect of it:
+
+```yaml
+benchmarks:
+  - { exchange: binance, symbol: "SSV/USDT", max_spread_pct: 0.15, min_depth_100_usd: 50000, min_depth_200_usd: 120000 }
+```
+
+Each metric target is optional. `max_spread_pct` is a **ceiling** in percent (lower is
+better, matching `avg_spread_pct`); `min_depth_*_usd` are **floors** in USD (higher is
+better). Targets are synced into the `benchmark_targets` table on service startup, so a
+market **overperforms** when it beats its target and **underperforms** when it misses.
+
+The `benchmark_comparison` view joins actuals against targets (per-metric delta + over/under
+status). To keep the default view uncluttered, benchmarks are off by default and surfaced two
+ways on the dashboard:
+
+- **Overlay benchmark targets** toggle (`false`/`true`, like *Include low-coverage days*) —
+  adds dashed per-venue target lines to the spread/depth trend charts when set to `true`.
+- A collapsed **Benchmarks — target vs. actual & breaches** row at the bottom holding two
+  tables (*Target vs. actual (latest day)* and *Recent benchmark breaches*). Collapsed rows
+  render nothing until expanded, so the tables are fully hidden by default — click the row
+  header to reveal them. (A collapsed row, rather than a variable, is used because Grafana's
+  scene engine does not reliably hide a panel via a template variable.)
+
+The aggregator logs each miss as an `aggregator.benchmark_breach` warning regardless of the
+dashboard state. To re-sync targets
+after editing config without waiting for a restart:
+
+```bash
+docker compose run --rm aggregator python -m ssv_mqm.aggregator --seed-benchmarks
+```
+
 ## Configuration
 
 `config/config.yaml` controls sampling cadence, the stale-book cutoff, depth bands, book
-limit, coverage threshold, aggregator schedule, and the list of `(exchange, symbol)` markets. Markets not listed on a
+limit, coverage threshold, aggregator schedule, the list of `(exchange, symbol)` markets,
+and per-market `benchmarks` (see above). Markets not listed on a
 venue are skipped + logged at startup (delisting-safe). Environment variables (`DATABASE_URL`,
 `LOG_LEVEL`, DB/Grafana credentials) come from `.env`.
 
@@ -84,7 +120,7 @@ uv run ruff check src tests
 
 **Included (P0):** ingestion, per-sample metrics, daily aggregation, persistent storage,
 Grafana dashboard, coverage/quality handling, reconnect/resync reliability, read-only
-security.
+security, and per-venue benchmark targets (target vs. actual + over/under).
 
 **Out of scope (deferred P1/P2):** threshold alerting, raw L2 snapshot retention,
 time-weighted averaging, derivatives/perps, DEX/on-chain, multi-token, historical backfill,

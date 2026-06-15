@@ -26,6 +26,7 @@ async def main() -> None:
     db = Database(config.database_url)
     await db.connect()
     await db.bootstrap_schema()
+    await db.seed_benchmark_targets(config.benchmarks)
 
     store = BookStore()
     collector = Collector(config, store)

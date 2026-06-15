@@ -69,3 +69,50 @@ def test_database_url_requires_env(tmp_path, monkeypatch):
     cfg = load_config(_write(tmp_path, "markets:\n  - { exchange: binance, symbol: 'SSV/USDT' }\n"))
     with pytest.raises(RuntimeError):
         _ = cfg.database_url
+
+
+def test_benchmarks_default_empty(tmp_path):
+    cfg = load_config(_write(tmp_path, "markets:\n  - { exchange: binance, symbol: 'SSV/USDT' }\n"))
+    assert cfg.benchmarks == []
+
+
+def test_benchmarks_parsed(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        markets:
+          - { exchange: binance, symbol: "SSV/USDT" }
+        benchmarks:
+          - exchange: binance
+            symbol: "SSV/USDT"
+            max_spread_pct: 0.15
+            min_depth_100_usd: 50000
+        """,
+    )
+    cfg = load_config(path)
+    assert len(cfg.benchmarks) == 1
+    b = cfg.benchmarks[0]
+    assert b.key == ("binance", "SSV/USDT")
+    assert b.max_spread_pct == 0.15
+    assert b.min_depth_100_usd == 50000
+    assert b.min_depth_200_usd is None
+
+
+def test_benchmark_unknown_market_rejected():
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(
+            {
+                "markets": [{"exchange": "binance", "symbol": "SSV/USDT"}],
+                "benchmarks": [{"exchange": "okx", "symbol": "SSV/USDT", "max_spread_pct": 0.2}],
+            }
+        )
+
+
+def test_benchmark_without_target_rejected():
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(
+            {
+                "markets": [{"exchange": "binance", "symbol": "SSV/USDT"}],
+                "benchmarks": [{"exchange": "binance", "symbol": "SSV/USDT"}],
+            }
+        )

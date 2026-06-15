@@ -10,8 +10,10 @@ services:
       - "5432:5432"
     volumes:
       - tsdb_data:/var/lib/postgresql/data
-      # Schema is applied on first init of an empty data dir.
+      # Schema is applied on first init of an empty data dir (in name order). The app's
+      # bootstrap_schema() also applies every migration idempotently on each startup.
       - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./migrations/002_benchmarks.sql:/docker-entrypoint-initdb.d/002_benchmarks.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ssv} -d ${POSTGRES_DB:-ssv_mqm}"]
       interval: 5s

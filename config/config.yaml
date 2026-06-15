@@ -40,3 +40,18 @@ markets:
   - { exchange: kucoin,  symbol: "SSV/USDC" }
   - { exchange: okx,     symbol: "SSV/USDT" }
   - { exchange: okx,     symbol: "SSV/USDC" }
+
+# Per-(exchange, symbol) benchmark targets the collected metrics are compared against.
+# Synced into the benchmark_targets table on startup (and via `--seed-benchmarks`); the
+# benchmark_comparison view + Grafana panels show target vs. actual and over/under status.
+# Each metric target is optional. max_spread_pct is a ceiling in percent (lower = better,
+# matching avg_spread_pct); min_depth_*_usd are floors in USD (higher = better). Every row
+# must reference a market listed above. Values below are illustrative — tune per venue.
+benchmarks:
+  - { exchange: binance, symbol: "SSV/USDT", max_spread_pct: 0.10, min_depth_100_usd: 80000, min_depth_200_usd: 160000 }
+  - { exchange: binance, symbol: "SSV/USDC", max_spread_pct: 0.10, min_depth_100_usd: 80000, min_depth_200_usd: 160000 }
+  - { exchange: okx, symbol: "SSV/USDT", max_spread_pct: 0.10, min_depth_100_usd: 80000, min_depth_200_usd: 160000 }
+  - { exchange: okx, symbol: "SSV/USDC", max_spread_pct: 0.10, min_depth_100_usd: 80000, min_depth_200_usd: 160000 }
+  - { exchange: bybit,   symbol: "SSV/USDT", max_spread_pct: 0.15, min_depth_100_usd: 60000, min_depth_200_usd: 120000 }
+  - { exchange: gate,   symbol: "SSV/USDT", max_spread_pct: 0.20, min_depth_100_usd: 40000, min_depth_200_usd: 90000 }
+  - { exchange: kucoin,   symbol: "SSV/USDT", max_spread_pct: 0.20, min_depth_100_usd: 40000, min_depth_200_usd: 90000 }

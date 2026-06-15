@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
 
@@ -53,12 +53,44 @@ class AggregatorConfig(BaseModel):
     run_minute_utc: int = Field(30, ge=0, le=59)
 
 
+class BenchmarkTarget(BaseModel):
+    """A per-(exchange, symbol) target the collected metrics are compared against.
+
+    Each metric target is optional; an unset target means that metric is simply not
+    benchmarked for this market. Spread is a *max* (lower = better, like ``avg_spread_pct``,
+    in percent); depth targets are *mins* in USD (higher = better).
+    """
+
+    exchange: str
+    symbol: str
+    max_spread_pct: float | None = Field(default=None, ge=0)
+    min_depth_100_usd: float | None = Field(default=None, ge=0)
+    min_depth_200_usd: float | None = Field(default=None, ge=0)
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.exchange, self.symbol)
+
+    @model_validator(mode="after")
+    def _at_least_one_target(self) -> BenchmarkTarget:
+        if (
+            self.max_spread_pct is None
+            and self.min_depth_100_usd is None
+            and self.min_depth_200_usd is None
+        ):
+            raise ValueError(
+                f"benchmark for {self.exchange} {self.symbol} sets no metric target"
+            )
+        return self
+
+
 class AppConfig(BaseModel):
     sampling: SamplingConfig = Field(default_factory=SamplingConfig)
     depth: DepthConfig = Field(default_factory=DepthConfig)
     coverage: CoverageConfig = Field(default_factory=CoverageConfig)
     aggregator: AggregatorConfig = Field(default_factory=AggregatorConfig)
     markets: list[Market]
+    benchmarks: list[BenchmarkTarget] = Field(default_factory=list)
 
     @field_validator("markets")
     @classmethod
@@ -66,6 +98,16 @@ class AppConfig(BaseModel):
         if not v:
             raise ValueError("at least one market must be configured")
         return v
+
+    @model_validator(mode="after")
+    def _benchmarks_match_markets(self) -> AppConfig:
+        market_keys = {m.key for m in self.markets}
+        for b in self.benchmarks:
+            if b.key not in market_keys:
+                raise ValueError(
+                    f"benchmark references unconfigured market {b.exchange} {b.symbol}"
+                )
+        return self
 
     @property
     def database_url(self) -> str:

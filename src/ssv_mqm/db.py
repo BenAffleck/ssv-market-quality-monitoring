@@ -14,34 +14,37 @@ from pathlib import Path
 import asyncpg
 
 from .aggregate import build_daily_aggregate
+from .config import BenchmarkTarget
 from .log import get_logger
 from .models import DailyAggregate, SampleMetrics
 
 log = get_logger(__name__)
 
 
-def _resolve_migration_path() -> Path:
-    """Locate 001_init.sql across the dev (editable) and installed (container) layouts.
+def _resolve_migrations_dir() -> Path:
+    """Locate the migrations directory across the dev (editable) and container layouts.
 
-    In an editable install ``db.py`` lives under the repo tree, so the migration sits at
+    In an editable install ``db.py`` lives under the repo tree, so migrations sit at
     ``<repo>/migrations``. When the package is pip-installed into site-packages that
     relative path no longer points at the repo, so we also honour an explicit env override
-    and the container's working directory (Dockerfile copies migrations to /app/migrations).
+    (``SSV_MQM_MIGRATIONS`` — a directory, or a file inside it for back-compat) and the
+    container's working directory (Dockerfile copies migrations to /app/migrations).
     """
     candidates = []
     env_override = os.environ.get("SSV_MQM_MIGRATIONS")
     if env_override:
-        candidates.append(Path(env_override))
-    candidates.append(Path(__file__).resolve().parents[2] / "migrations" / "001_init.sql")
-    candidates.append(Path.cwd() / "migrations" / "001_init.sql")
+        p = Path(env_override)
+        candidates.append(p if p.is_dir() else p.parent)
+    candidates.append(Path(__file__).resolve().parents[2] / "migrations")
+    candidates.append(Path.cwd() / "migrations")
     for path in candidates:
-        if path.is_file():
+        if path.is_dir():
             return path
     # Fall back to the first candidate so the error message is actionable.
     return candidates[0]
 
 
-MIGRATION_PATH = _resolve_migration_path()
+MIGRATIONS_DIR = _resolve_migrations_dir()
 
 
 class Database:
@@ -65,11 +68,12 @@ class Database:
             self._pool = None
 
     async def bootstrap_schema(self) -> None:
-        """Apply the schema migration idempotently (CREATE ... IF NOT EXISTS)."""
-        sql = MIGRATION_PATH.read_text(encoding="utf-8")
+        """Apply all migrations in name order, idempotently (CREATE ... IF NOT EXISTS)."""
+        migrations = sorted(MIGRATIONS_DIR.glob("*.sql"))
         async with self.pool.acquire() as conn:
-            await conn.execute(sql)
-        log.info("db.schema_ready")
+            for path in migrations:
+                await conn.execute(path.read_text(encoding="utf-8"))
+        log.info("db.schema_ready", migrations=len(migrations))
 
     async def insert_samples(self, samples: list[SampleMetrics]) -> None:
         """Batch-insert per-sample metrics. Duplicate (exchange, symbol, time) is ignored."""
@@ -190,3 +194,66 @@ class Database:
                 rows,
             )
         log.info("db.aggregates_upserted", count=len(aggregates))
+
+    async def seed_benchmark_targets(self, targets: list[BenchmarkTarget]) -> None:
+        """Mirror the configured benchmark targets into ``benchmark_targets``.
+
+        Upserts each configured row and removes any row no longer in config, so the table
+        always reflects ``config.yaml`` (delisting-safe, like the configured markets).
+        """
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                if targets:
+                    rows = [
+                        (
+                            t.exchange,
+                            t.symbol,
+                            Decimal(str(t.max_spread_pct))  # NUMERIC column wants Decimal
+                            if t.max_spread_pct is not None
+                            else None,
+                            t.min_depth_100_usd,
+                            t.min_depth_200_usd,
+                        )
+                        for t in targets
+                    ]
+                    await conn.executemany(
+                        """
+                        INSERT INTO benchmark_targets (
+                            exchange, symbol, max_spread_pct,
+                            min_depth_100_usd, min_depth_200_usd, updated_at
+                        ) VALUES ($1,$2,$3,$4,$5, now())
+                        ON CONFLICT (exchange, symbol) DO UPDATE SET
+                            max_spread_pct = EXCLUDED.max_spread_pct,
+                            min_depth_100_usd = EXCLUDED.min_depth_100_usd,
+                            min_depth_200_usd = EXCLUDED.min_depth_200_usd,
+                            updated_at = now()
+                        """,
+                        rows,
+                    )
+                if targets:
+                    await conn.execute(
+                        """
+                        DELETE FROM benchmark_targets bt
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM unnest($1::text[], $2::text[]) AS k(exchange, symbol)
+                            WHERE k.exchange = bt.exchange AND k.symbol = bt.symbol
+                        )
+                        """,
+                        [t.exchange for t in targets],
+                        [t.symbol for t in targets],
+                    )
+                else:
+                    await conn.execute("DELETE FROM benchmark_targets")
+        log.info("db.benchmarks_seeded", count=len(targets))
+
+    async def fetch_benchmark_breaches(self, day: date) -> list[asyncpg.Record]:
+        """Rows for ``day`` where any benchmarked metric missed its target."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                """
+                SELECT * FROM benchmark_comparison
+                WHERE day = $1
+                  AND (spread_met = FALSE OR depth_100_met = FALSE OR depth_200_met = FALSE)
+                """,
+                day,
+            )

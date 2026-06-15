@@ -49,6 +49,7 @@ The client lists SSV on multiple centralized exchanges but has **no objective, c
 - As a market-ops manager, I want to see the **average daily spread** for SSV on each exchange so I can tell which venues offer the tightest markets.
 - As a market-ops manager, I want to see **±1% and ±2% depth (USD)** per exchange per day so I can judge how much size each book can absorb without significant slippage.
 - As a market-ops manager, I want to **compare venues side by side and over time** so I can decide where to direct liquidity incentives or escalate to a market maker.
+- As a market-ops manager, I want to **compare each venue's spread/depth against a per-venue target (benchmark)** and see when it over- or under-performed, so I can hold venues/market makers to an expected bar. *(Implemented: `benchmarks` in config → `benchmark_comparison` view + target-vs-actual Grafana panels; in-app threshold alerting/notification remains P1.)*
 - As a market-ops manager, I want to be **notified when spread widens or depth thins past a threshold** on any venue so I can act the same day. *(P1)*
 
 ### Data Analyst (builder / maintainer)
