@@ -116,3 +116,32 @@ def test_benchmark_without_target_rejected():
                 "benchmarks": [{"exchange": "binance", "symbol": "SSV/USDT"}],
             }
         )
+
+
+def test_fiat_market_requires_fx_source():
+    # A non-USD quote with no matching fx entry fails fast at load.
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate({"markets": [{"exchange": "bitvavo", "symbol": "SSV/EUR"}]})
+
+
+def test_fiat_market_with_fx_source_parsed(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        markets:
+          - { exchange: bitvavo, symbol: "SSV/EUR" }
+        fx:
+          EUR: { exchange: bitvavo, symbol: "USDC/EUR", invert: true }
+        """,
+    )
+    cfg = load_config(path)
+    assert cfg.fx["EUR"].symbol == "USDC/EUR"
+    assert cfg.fx["EUR"].invert is True
+    # The cross is surfaced as a book to watch, deduplicated by (exchange, symbol).
+    assert cfg.fx_sources() == [cfg.fx["EUR"]]
+
+
+def test_usd_quote_market_needs_no_fx(tmp_path):
+    cfg = load_config(_write(tmp_path, "markets:\n  - { exchange: binance, symbol: 'SSV/USDC' }\n"))
+    assert cfg.fx == {}
+    assert cfg.fx_sources() == []

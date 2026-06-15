@@ -11,11 +11,11 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
-from .collector import BookStore
-from .config import AppConfig
+from .collector import BookSnapshot, BookStore
+from .config import USD_QUOTES, AppConfig, Market
 from .db import Database
 from .log import get_logger
-from .metrics import EmptyBookError, compute_sample
+from .metrics import EmptyBookError, compute_sample, resolve_rate
 from .models import SampleMetrics
 
 log = get_logger(__name__)
@@ -28,6 +28,35 @@ class Sampler:
         self._db = db
         self._bands = tuple(config.depth.bands_bps)
         self._max_book_age = config.sampling.max_book_age_seconds
+
+    def _fresh(self, book: BookSnapshot | None, now: datetime) -> bool:
+        """A book is usable this tick if present and updated within max_book_age."""
+        if book is None:
+            return False
+        return (now - book.received_at).total_seconds() <= self._max_book_age
+
+    def _quote_to_usd(self, market: Market, now: datetime) -> float | None:
+        """Resolve the depth multiplier for ``market`` (None => skip this tick).
+
+        USD-equivalent quotes map to 1.0. A fiat quote uses its configured live FX cross;
+        a missing/stale cross returns None so the sample is skipped (coverage gap), exactly
+        like a stale primary book.
+        """
+        if market.quote in USD_QUOTES:
+            return 1.0
+        src = self._config.fx[market.quote]  # presence guaranteed by config validation
+        fx_book = self._store.get(src.exchange, src.symbol)
+        if not self._fresh(fx_book, now) or not fx_book.bids or not fx_book.asks:
+            log.warning(
+                "sampler.fx_unavailable",
+                exchange=market.exchange,
+                symbol=market.symbol,
+                fx_exchange=src.exchange,
+                fx_symbol=src.symbol,
+            )
+            return None
+        mid = (float(fx_book.bids[0][0]) + float(fx_book.asks[0][0])) / 2.0
+        return resolve_rate(mid, invert=src.invert)
 
     async def _tick(self) -> None:
         now = datetime.now(timezone.utc)
@@ -51,6 +80,9 @@ class Sampler:
                     age_s=round(age, 1),
                 )
                 continue
+            quote_to_usd = self._quote_to_usd(market, now)
+            if quote_to_usd is None:
+                continue  # FX cross missing/stale -> coverage gap, never fabricated
             try:
                 sample = compute_sample(
                     market.exchange,
@@ -59,6 +91,7 @@ class Sampler:
                     book.bids,
                     book.asks,
                     self._bands,
+                    quote_to_usd=quote_to_usd,
                 )
             except EmptyBookError:
                 continue

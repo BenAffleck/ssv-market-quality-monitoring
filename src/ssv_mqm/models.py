@@ -25,9 +25,13 @@ class SampleMetrics:
     best_ask: float
     mid: float
     spread: float  # fraction: (ask - bid) / mid
-    # Depth in quote currency (~= USD), keyed by band in bps: {100: (bid, ask), 200: (...)}.
+    # Depth in USD (quote-currency notional x fx_rate), keyed by band in bps:
+    # {100: (bid, ask), 200: (...)}.
     depth: dict[int, tuple[float, float]] = field(default_factory=dict)
     is_crossed: bool = False
+    # Quote-currency -> USD multiplier applied to depth (1.0 for USDT/USDC; live FX rate
+    # for a fiat quote like EUR). Recorded for auditability.
+    fx_rate: float = 1.0
 
     @property
     def spread_pct(self) -> float:

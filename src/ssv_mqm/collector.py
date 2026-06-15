@@ -157,10 +157,16 @@ class Collector:
 
     async def run(self) -> None:
         """Start one runner task per exchange and run until cancelled."""
-        # Group configured symbols by exchange.
+        # Group configured symbols by exchange — both the monitored markets and the FX
+        # cross books the sampler consults for fiat->USD conversion (deduped per exchange).
         by_exchange: dict[str, list[str]] = {}
-        for m in self._config.markets:
-            by_exchange.setdefault(m.exchange, []).append(m.symbol)
+        for exchange, symbol in (
+            *((m.exchange, m.symbol) for m in self._config.markets),
+            *((s.exchange, s.symbol) for s in self._config.fx_sources()),
+        ):
+            symbols = by_exchange.setdefault(exchange, [])
+            if symbol not in symbols:
+                symbols.append(symbol)
 
         tasks = [
             asyncio.create_task(self._run_exchange(exchange_id, symbols), name=exchange_id)

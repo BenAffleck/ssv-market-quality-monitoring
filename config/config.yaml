@@ -27,7 +27,8 @@ aggregator:
   run_minute_utc: 30
 
 # Markets to monitor. Symbols use CCXT unified notation (BASE/QUOTE).
-# USDT/USDC are treated as ~= USD for depth notional.
+# USDT/USDC are treated as ~= USD for depth notional. A non-USD (fiat) quote like EUR
+# must have a matching `fx:` entry below so its depth is converted to USD.
 # Markets not listed on a venue are skipped + logged at startup (delisting-safe).
 markets:
   - { exchange: binance, symbol: "SSV/USDT" }
@@ -40,6 +41,15 @@ markets:
   - { exchange: kucoin,  symbol: "SSV/USDC" }
   - { exchange: okx,     symbol: "SSV/USDT" }
   - { exchange: okx,     symbol: "SSV/USDC" }
+  - { exchange: bitvavo, symbol: "SSV/EUR" }
+
+# FX conversion sources, keyed by the fiat quote currency. Each non-USD-quoted market
+# above must have an entry here. The collector watches the cross book like any other
+# market; the sampler reads its mid as the quote->USD rate (a stale/missing cross makes
+# the dependent sample a coverage gap, never fabricated). `invert: true` when the cross is
+# quoted stablecoin/fiat: bitvavo lists USDC/EUR (mid = EUR per USD), so USD per EUR = 1/mid.
+fx:
+  EUR: { exchange: bitvavo, symbol: "USDC/EUR", invert: true }
 
 # Per-(exchange, symbol) benchmark targets the collected metrics are compared against.
 # Synced into the benchmark_targets table on startup (and via `--seed-benchmarks`); the
@@ -55,3 +65,4 @@ benchmarks:
   - { exchange: bybit,   symbol: "SSV/USDT", max_spread_pct: 0.15, min_depth_100_usd: 60000, min_depth_200_usd: 120000 }
   - { exchange: gate,   symbol: "SSV/USDT", max_spread_pct: 0.20, min_depth_100_usd: 40000, min_depth_200_usd: 90000 }
   - { exchange: kucoin,   symbol: "SSV/USDT", max_spread_pct: 0.20, min_depth_100_usd: 40000, min_depth_200_usd: 90000 }
+  - { exchange: bitvavo,  symbol: "SSV/EUR",  max_spread_pct: 0.20, min_depth_100_usd: 40000, min_depth_200_usd: 90000 }

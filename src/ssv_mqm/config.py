@@ -15,10 +15,40 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
 
+# Quote currencies whose notional is treated as ~= USD directly (multiplier 1.0). Any
+# other quote (a fiat like EUR) must declare an ``fx`` source so depth can be converted.
+USD_QUOTES = frozenset({"USDT", "USDC", "USD"})
+
+
+def quote_currency(symbol: str) -> str:
+    """The quote leg of a CCXT unified ``BASE/QUOTE`` symbol (e.g. SSV/EUR -> EUR)."""
+    return symbol.split("/", 1)[1]
+
 
 class Market(BaseModel):
     exchange: str
     symbol: str
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.exchange, self.symbol)
+
+    @property
+    def quote(self) -> str:
+        return quote_currency(self.symbol)
+
+
+class FxSource(BaseModel):
+    """A live venue cross used to convert a fiat quote currency to USD.
+
+    The collector watches ``(exchange, symbol)`` like any other book; the sampler reads
+    its mid as the rate. ``invert`` is True when the cross is quoted the other way round
+    (e.g. ``USDC/EUR`` gives EUR-per-USD, so USD-per-EUR = 1/mid).
+    """
+
+    exchange: str
+    symbol: str
+    invert: bool = False
 
     @property
     def key(self) -> tuple[str, str]:
@@ -91,6 +121,8 @@ class AppConfig(BaseModel):
     aggregator: AggregatorConfig = Field(default_factory=AggregatorConfig)
     markets: list[Market]
     benchmarks: list[BenchmarkTarget] = Field(default_factory=list)
+    # FX conversion sources keyed by fiat quote currency (e.g. "EUR").
+    fx: dict[str, FxSource] = Field(default_factory=dict)
 
     @field_validator("markets")
     @classmethod
@@ -108,6 +140,24 @@ class AppConfig(BaseModel):
                     f"benchmark references unconfigured market {b.exchange} {b.symbol}"
                 )
         return self
+
+    @model_validator(mode="after")
+    def _fiat_quotes_have_fx(self) -> AppConfig:
+        """Every non-USD-quote market must declare an fx source for its quote currency."""
+        for m in self.markets:
+            if m.quote not in USD_QUOTES and m.quote not in self.fx:
+                raise ValueError(
+                    f"market {m.exchange} {m.symbol} has non-USD quote {m.quote!r} "
+                    f"but no fx['{m.quote}'] conversion source is configured"
+                )
+        return self
+
+    def fx_sources(self) -> list[FxSource]:
+        """Distinct FX-cross books to watch, deduplicated by (exchange, symbol)."""
+        seen: dict[tuple[str, str], FxSource] = {}
+        for src in self.fx.values():
+            seen.setdefault(src.key, src)
+        return list(seen.values())
 
     @property
     def database_url(self) -> str:

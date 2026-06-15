@@ -93,6 +93,7 @@ class Database:
                 s.depth[200][0],
                 s.depth[200][1],
                 s.is_crossed,
+                s.fx_rate,
             )
             for s in samples
         ]
@@ -101,8 +102,9 @@ class Database:
                 """
                 INSERT INTO samples (
                     time, exchange, symbol, best_bid, best_ask, mid, spread,
-                    depth_100_bid, depth_100_ask, depth_200_bid, depth_200_ask, is_crossed
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                    depth_100_bid, depth_100_ask, depth_200_bid, depth_200_ask,
+                    is_crossed, fx_rate
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                 ON CONFLICT (exchange, symbol, time) DO NOTHING
                 """,
                 rows,

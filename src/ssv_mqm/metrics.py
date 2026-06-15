@@ -9,7 +9,9 @@ Definitions (per PRD):
     depth(band) on the bid side  = Sum(price * size) for bids with price >= mid*(1 - band)
     depth(band) on the ask side  = Sum(price * size) for asks with price <= mid*(1 + band)
 
-USDT/USDC are treated as ~= USD, so price*size is the USD notional directly.
+Depth is always published in USD. ``price * size`` is the *quote-currency* notional;
+it is scaled by ``quote_to_usd`` to reach USD. USDT/USDC are treated as ~= USD so their
+multiplier is 1.0 (a no-op); a fiat quote like EUR passes a live FX rate (see sampler).
 """
 
 from __future__ import annotations
@@ -26,6 +28,17 @@ Side = Sequence[Level]
 
 class EmptyBookError(ValueError):
     """Raised when a book has no levels on one or both sides — cannot form a sample."""
+
+
+def resolve_rate(mid: float, *, invert: bool) -> float:
+    """Quote-to-USD multiplier from an FX-cross mid price.
+
+    ``invert`` is True when the cross is quoted as USD-stablecoin/fiat (mid is fiat-per-USD,
+    so the USD-per-fiat rate is its reciprocal).
+    """
+    if mid <= 0.0:
+        raise ValueError(f"non-positive FX mid: {mid}")
+    return 1.0 / mid if invert else mid
 
 
 def _band_depth(levels: Side, threshold: float, *, is_bid: bool) -> float:
@@ -54,6 +67,7 @@ def compute_sample(
     bids: Side,
     asks: Side,
     bands_bps: Sequence[int] = (100, 200),
+    quote_to_usd: float = 1.0,
 ) -> SampleMetrics:
     """Compute one :class:`SampleMetrics` from an order-book snapshot.
 
@@ -61,6 +75,10 @@ def compute_sample(
     what CCXT returns. A crossed/locked book (best_bid >= best_ask) is flagged via
     ``is_crossed`` so it can be excluded from spread averaging downstream (PRD P0-2),
     rather than producing a negative spread.
+
+    ``quote_to_usd`` converts the per-band depth from quote-currency notional to USD
+    (1.0 for USDT/USDC; the live EUR->USD rate for a fiat quote). Spread is dimensionless
+    and so is unaffected by it.
     """
     if not bids or not asks:
         raise EmptyBookError(
@@ -78,7 +96,7 @@ def compute_sample(
         frac = band / 10_000.0
         bid_depth = _band_depth(bids, mid * (1.0 - frac), is_bid=True)
         ask_depth = _band_depth(asks, mid * (1.0 + frac), is_bid=False)
-        depth[int(band)] = (bid_depth, ask_depth)
+        depth[int(band)] = (bid_depth * quote_to_usd, ask_depth * quote_to_usd)
 
     return SampleMetrics(
         exchange=exchange,
@@ -90,4 +108,5 @@ def compute_sample(
         spread=spread,
         depth=depth,
         is_crossed=is_crossed,
+        fx_rate=quote_to_usd,
     )

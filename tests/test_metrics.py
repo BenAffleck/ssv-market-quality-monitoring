@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from ssv_mqm.metrics import EmptyBookError, compute_sample
+from ssv_mqm.metrics import EmptyBookError, compute_sample, resolve_rate
 
 NOW = datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc)
 
@@ -79,3 +79,34 @@ def test_empty_side_raises():
         _sample([], [[10.0, 1]])
     with pytest.raises(EmptyBookError):
         _sample([[10.0, 1]], [])
+
+
+def test_quote_to_usd_default_is_noop():
+    # Default multiplier 1.0 leaves depth as raw quote-currency notional, and fx_rate
+    # is recorded as 1.0 (the USDT/USDC case — unchanged from before).
+    s = _sample([[9.99, 100]], [[10.01, 100]])
+    assert s.fx_rate == 1.0
+    assert s.depth[100] == pytest.approx((9.99 * 100, 10.01 * 100))
+
+
+def test_quote_to_usd_scales_depth_only():
+    # A EUR quote converted at 1.08 USD/EUR scales every depth component; spread (a
+    # dimensionless fraction) is untouched.
+    rate = 1.08
+    s = compute_sample(
+        "bitvavo", "SSV/EUR", NOW, [[9.99, 100]], [[10.01, 100]], (100,), quote_to_usd=rate
+    )
+    assert s.fx_rate == rate
+    assert s.depth[100] == pytest.approx((9.99 * 100 * rate, 10.01 * 100 * rate))
+    assert s.spread == pytest.approx((10.01 - 9.99) / 10.0)
+
+
+def test_resolve_rate_direct_and_inverted():
+    assert resolve_rate(1.08, invert=False) == pytest.approx(1.08)
+    # USDC/EUR mid of 0.92 EUR-per-USD -> ~1.087 USD-per-EUR.
+    assert resolve_rate(0.92, invert=True) == pytest.approx(1.0 / 0.92)
+
+
+def test_resolve_rate_rejects_non_positive():
+    with pytest.raises(ValueError):
+        resolve_rate(0.0, invert=False)
