@@ -83,3 +83,5 @@ prices:
     - { asset: SSV, exchange: binance, symbol: "SSV/USDT" }
     - { asset: ETH, exchange: binance, symbol: "ETH/USDT" }
     - { asset: RPL, exchange: binance, symbol: "RPL/USDT" }
+    - { asset: LDO, exchange: binance, symbol: "LDO/USDT" }
+    - { asset: ETHFI, exchange: binance, symbol: "ETHFI/USDT" }
